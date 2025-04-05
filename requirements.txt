@@ -1,0 +1,12 @@
+livekit
+livekit-agents
+livekit-plugins-google
+livekit-plugins-openai
+livekit-plugins-anthropic
+livekit-plugins-rime
+livekit-plugins-silero
+livekit-plugins-deepgram
+python-dotenv
+python-pptx
+Pillow
+pypdf
