@@ -72,11 +72,11 @@ rime_tts = TTS(
 )
 
 sara_voice = elevenlabs.Voice(
-        id="gpwLh8wn414GpElBBUlf",
-        name="Sara",
-        category="Sara",
-        settings=elevenlabs.VoiceSettings(stability=1.0, similarity_boost=1.0),
-    )
+    id="gpwLh8wn414GpElBBUlf",
+    name="Sara",
+    category="Sara",
+    settings=elevenlabs.VoiceSettings(stability=1.0, similarity_boost=1.0),
+)
 
 
 async def entrypoint(ctx: JobContext):
@@ -510,6 +510,73 @@ async def entrypoint(ctx: JobContext):
                 logger.error(f"Error generating wardrobe matching suggestions: {e}")
                 return f"Sorry, I encountered an error while analyzing your wardrobe matches: {str(e)}"
 
+        @llm.ai_callable()
+        async def roast_my_look(
+            self,
+        ):
+            """Humorously critique the user's current outfit with a comedic 'roast'. Results are meant to be funny, not hurtful."""
+            logger.info(f"Roasting user's look")
+
+            # Get the latest image from the video feed
+            latest_image = await get_latest_image(ctx.room)
+            if not latest_image:
+                return "I couldn't capture an image to analyze. Please make sure your camera is working properly."
+
+            # Create a temporary chat context for the roasting task
+            temp_chat_ctx = llm.ChatContext()
+
+            # Add a system message explaining the task
+            temp_chat_ctx.messages.append(
+                llm.ChatMessage(
+                    role="system",
+                    content=f"""You are a hilarious fashion critic with a sharp eye and witty tongue. 
+                    The user wants you to 'roast' their outfit in a comedic way. 
+                    
+					Examples:
+					- if the colors dont match say smth like "a white jacket with a blue shirt. Did you see this look in a toddler's coloring book?
+					- if the look is too standard/boring you can say sarcastically "you look fine. You could even be in a commerical playing basic person number 2
+                    - if the look is too old fashioned, say smth like "its so nice of you to wear your grandma's old clothes"
+					- if someone is wearing anything from Patagonia, say, "Patagonia - what else could i expect from a tech bro"
+					- occasionally just say a generic insult such as "i can see that inflation got to your closet" or "did you buy this at Costco?" 				
+					""",
+                )
+            )
+
+            # Add the current image
+            temp_chat_ctx.messages.append(
+                llm.ChatMessage(
+                    role="user", content=[llm.ChatImage(image=latest_image)]
+                )
+            )
+            temp_chat_ctx.messages.append(
+                llm.ChatMessage(
+                    role="user",
+                    content="Roast my outfit! I'm ready for your fashion critique.",
+                )
+            )
+
+            # Get the LLM's response
+            try:
+                response = await gemini_client.generate_content(
+                    temp_chat_ctx.messages_to_gemini_format(),
+                    generation_config={
+                        "temperature": 0.9,  # Higher temperature for more creative responses
+                        "top_p": 0.95,
+                        "top_k": 40,
+                        "max_output_tokens": 800,
+                    },
+                )
+
+                # Return the formatted response
+                if response.text:
+                    return response.text
+                else:
+                    return "I tried to roast your outfit, but my fashion critic brain short-circuited. Maybe your look is beyond critique... or beyond help? Try again with a clearer photo!"
+
+            except Exception as e:
+                logger.error(f"Error generating outfit roast: {e}")
+                return f"I was about to deliver an epic fashion burn, but ran into a technical glitch: {str(e)}"
+
     fnc_ctx = AssistantFnc()
 
     participant = await ctx.wait_for_participant()
@@ -519,7 +586,7 @@ async def entrypoint(ctx: JobContext):
         stt=deepgram.STT(model="nova-2-general"),
         llm=google_llm,
         tts=elevenlabs.TTS(voice=sara_voice, model="eleven_flash_v2_5"),
-        #tts=rime_tts,
+        # tts=rime_tts,
         # intial ChatContext with system prompt
         chat_ctx=initial_chat_ctx,
         before_llm_cb=before_llm_cb,
