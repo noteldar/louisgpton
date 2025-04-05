@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dotenv import load_dotenv
 import os
+import requests
 
 load_dotenv()
 import logging
@@ -40,7 +41,7 @@ google_llm = google.LLM(
 
 rime_tts = TTS(
     model="mistv2",
-    speaker="cove",
+    speaker="blossom",
     speed_alpha=0.9,
     reduce_latency=True,
     pause_between_brackets=True,
@@ -88,6 +89,60 @@ async def entrypoint(ctx: JobContext):
         """
         logger.info("before_llm_cb")
         latest_image = await get_latest_image(ctx.room)
+        image_bytes = encode(
+            latest_image,
+            EncodeOptions(
+                format="JPEG",
+                resize_options=ResizeOptions(
+                    width=512, height=512, strategy="scale_aspect_fit"
+                ),
+            ),
+        )
+
+        # Search for similar clothing items using Lykdat API
+        url = "https://cloudapi.lykdat.com/v1/global/search"
+        payload = {
+            "api_key": os.getenv("LYKDAT_API_KEY"),
+            # "catalog_name": "global",
+        }
+
+        # Use the already encoded image instead of reading from file
+        files = [("image", ("image.jpg", io.BytesIO(image_bytes), "image/jpeg"))]
+
+        try:
+            response = requests.post(url, data=payload, files=files)
+            similar_items_data = response.json()
+
+            # Extract result groups and similar products from the response
+            result_groups = similar_items_data.get("data", {}).get("result_groups", [])
+            similar_items = []
+
+            # Process each detected clothing item and its similar products
+            for group in result_groups:
+                detected_item = group.get("detected_item", {})
+                item_type = detected_item.get("name", "Item")
+
+                # Get top similar products for this detected item
+                products = group.get("similar_products", [])[:5]  # Limit to top 5 items
+
+                for product in products:
+                    similar_items.append(
+                        {
+                            "item_type": item_type,
+                            "name": product.get("name", "Unknown"),
+                            "brand": product.get("brand_name", "Unknown brand"),
+                            "price": product.get("price", "N/A"),
+                            "image_url": product.get("matching_image", ""),
+                            "product_url": product.get("url", ""),
+                            "score": product.get("score", 0),
+                        }
+                    )
+
+            logger.info(f"Found {len(similar_items)} similar clothing items")
+            logger.info(f"Items: {similar_items}")
+        except Exception as e:
+            logger.error(f"Failed to get similar items: {e}")
+            similar_items = []
 
         latest_user_message = [m for m in chat_ctx.messages if m.role == "user"][-1]
         logger.info(f"latest user message: {latest_user_message.content}")
@@ -97,6 +152,20 @@ async def entrypoint(ctx: JobContext):
                 llm.ChatMessage(role="user", content=image_content)
             )
             logger.debug("Added latest frame to conversation context")
+
+            # Add similar items info to the system message for the LLM to use
+            if similar_items:
+                similar_items_text = "\nI found some similar items you might like:\n"
+                for i, item in enumerate(similar_items[:5]):  # Limit to top 5 items
+                    similar_items_text += f"\n{i+1}. {item['name']} by {item['brand']} - {item['price']}\n   {item['product_url']}\n"
+
+                chat_ctx.messages.append(
+                    llm.ChatMessage(
+                        role="system",
+                        content=f"The person is wearing clothes similar to these items: {similar_items_text}\n\nIncorporate some of these suggestions naturally in your comments about their outfit. You can suggest similar items they might like based on what they're wearing.",
+                    )
+                )
+                logger.debug("Added similar items information to chat context")
 
         # Function to read PDF examples and add them to the chat context
 
