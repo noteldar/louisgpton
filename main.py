@@ -20,7 +20,7 @@ from livekit.agents import (
 )
 
 from livekit.agents.pipeline import VoicePipelineAgent
-from livekit.plugins import deepgram, openai, silero, google
+from livekit.plugins import deepgram, openai, silero, google, elevenlabs
 from livekit.plugins.rime import TTS
 from google import genai
 from google.genai import types
@@ -60,6 +60,8 @@ google_llm = google.LLM(
     tool_choice="required",
 )
 
+google_llm = openai.LLM(model="gpt-4.5-preview-2025-02-27")
+
 rime_tts = TTS(
     model="mistv2",
     speaker="blossom",
@@ -68,6 +70,13 @@ rime_tts = TTS(
     pause_between_brackets=True,
     phonemize_between_brackets=True,
 )
+
+sara_voice = elevenlabs.Voice(
+        id="gpwLh8wn414GpElBBUlf",
+        name="Sara",
+        category="Sara",
+        settings=elevenlabs.VoiceSettings(stability=1.0, similarity_boost=1.0),
+    )
 
 
 async def entrypoint(ctx: JobContext):
@@ -164,6 +173,11 @@ async def entrypoint(ctx: JobContext):
             content="""
 	You are helping your good friend shop for clothes.
 	You are given their look from the dressing room and need to comment on their appearance in the style of the examples provided.
+        If you see items that are out of the ordinary - such as any woman's dress, any sparkling or shiny things, be extra emotional and excited and impressed in your response.
+        To demonstrate your astonishment in these cases shorten your response to simple phrases like "Wooooooow" or "Fire!" or some genz slang like Drip or Slay. 
+        If you see a clear mismatch - such as someone wearing a shirt with a dress shirt of very different patterns or looks that are baggy/unflattering, don't be afraid to add some suggestions for improvement
+
+        DO not structure your responses the same, vary the length, the emotional weight, the phrases used so that your responses always feel fresh
 			""",
             role="system",
         )
@@ -504,7 +518,8 @@ async def entrypoint(ctx: JobContext):
         # flexibility to use any models
         stt=deepgram.STT(model="nova-2-general"),
         llm=google_llm,
-        tts=rime_tts,
+        tts=elevenlabs.TTS(voice=sara_voice, model="eleven_flash_v2_5"),
+        #tts=rime_tts,
         # intial ChatContext with system prompt
         chat_ctx=initial_chat_ctx,
         before_llm_cb=before_llm_cb,

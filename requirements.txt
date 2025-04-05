@@ -6,6 +6,7 @@ livekit-plugins-anthropic
 livekit-plugins-rime
 livekit-plugins-silero
 livekit-plugins-deepgram
+livekit-plugins-elevenlabs
 python-dotenv
 python-pptx
 Pillow
