@@ -28,6 +28,8 @@ from google.genai import types
 from typing import Annotated, Union, List
 import io
 import aiohttp
+import glob
+from pathlib import Path
 
 # Email sending imports
 from email.mime.text import MIMEText
@@ -378,6 +380,121 @@ async def entrypoint(ctx: JobContext):
             except Exception as e:
                 logger.error(f"Failed to get similar items: {e}")
                 return f"Sorry, I encountered an error while searching for similar items: {str(e)}"
+
+        @llm.ai_callable()
+        async def find_matching_items_from_wardrobe(
+            self,
+            clothing_type: Annotated[
+                str,
+                llm.TypeInfo(
+                    description="Type of clothing item to find matches for (e.g., 'top', 'pants', 'dress', 'outfit')"
+                ),
+            ] = None,
+        ):
+            """Find items in your wardrobe (uploaded photos) that match what you're currently wearing. Helps you create cohesive outfits with clothes you already own."""
+            logger.info(
+                f"Finding wardrobe matches for {clothing_type if clothing_type else 'current outfit'}"
+            )
+
+            # Get the latest image from the video feed
+            latest_image = await get_latest_image(ctx.room)
+            if not latest_image:
+                return "I couldn't capture an image to analyze. Please make sure your camera is working properly."
+
+            # Path to the uploaded photos directory
+            photos_dir = Path("..").joinpath("uploaded_photos")
+            if not photos_dir.exists() or not photos_dir.is_dir():
+                return "I couldn't find your wardrobe photos directory. Please make sure the 'uploaded_photos' folder exists."
+
+            # Find all jpg files in the directory
+            photo_files = list(photos_dir.glob("*.jpg")) + list(
+                photos_dir.glob("*.jpeg")
+            )
+            if not photo_files:
+                return "I couldn't find any clothing photos in your wardrobe directory. Please add some .jpg photos to the 'uploaded_photos' folder."
+
+            # Create a temporary chat context for the matching task
+            temp_chat_ctx = llm.ChatContext()
+
+            # Add a system message explaining the task
+            clothing_type_msg = f" {clothing_type}" if clothing_type else "outfit"
+            temp_chat_ctx.messages.append(
+                llm.ChatMessage(
+                    role="system",
+                    content=f"""I need your help finding items in the user's wardrobe that would match their current{clothing_type_msg}. 
+                    I'll show you the current{clothing_type_msg} first, then several photos from their wardrobe. 
+                    Please identify 2-3 items from their wardrobe that would pair well with what they're currently wearing.
+                    Focus on complementary colors, styles, and fashion principles.
+                    For each suggested match, explain why it works well with the current outfit.""",
+                )
+            )
+
+            # Add the current image first
+            temp_chat_ctx.messages.append(
+                llm.ChatMessage(
+                    role="user", content=[llm.ChatImage(image=latest_image)]
+                )
+            )
+            temp_chat_ctx.messages.append(
+                llm.ChatMessage(
+                    role="user",
+                    content="This is what I'm currently wearing. Now I'll show you my wardrobe photos:",
+                )
+            )
+
+            # Process each photo from the wardrobe directory
+            for i, photo_path in enumerate(
+                photo_files[:10]
+            ):  # Limit to 10 photos to avoid context size issues
+                try:
+                    # Read the image file
+                    with open(photo_path, "rb") as f:
+                        wardrobe_image = f.read()
+
+                    # Add a descriptive message with the image
+                    temp_chat_ctx.messages.append(
+                        llm.ChatMessage(
+                            role="user", content=[llm.ChatImage(image=wardrobe_image)]
+                        )
+                    )
+                    temp_chat_ctx.messages.append(
+                        llm.ChatMessage(
+                            role="user",
+                            content=f"Wardrobe item {i+1}: {photo_path.name}",
+                        )
+                    )
+                except Exception as e:
+                    logger.error(f"Error processing wardrobe photo {photo_path}: {e}")
+
+            # Add the final question
+            temp_chat_ctx.messages.append(
+                llm.ChatMessage(
+                    role="user",
+                    content="Based on what I'm wearing now, which items from my wardrobe would match best? Please suggest 2-3 items and explain why they would work well together.",
+                )
+            )
+
+            # Get the LLM's response
+            try:
+                response = await gemini_client.generate_content(
+                    temp_chat_ctx.messages_to_gemini_format(),
+                    generation_config={
+                        "temperature": 0.7,
+                        "top_p": 0.95,
+                        "top_k": 40,
+                        "max_output_tokens": 1024,
+                    },
+                )
+
+                # Return the formatted response
+                if response.text:
+                    return f"I've analyzed your current {clothing_type_msg if clothing_type else 'outfit'} and your wardrobe photos. Here are my recommendations:\n\n{response.text}"
+                else:
+                    return "I couldn't analyze the match between your current outfit and wardrobe. Please try again or provide clearer photos."
+
+            except Exception as e:
+                logger.error(f"Error generating wardrobe matching suggestions: {e}")
+                return f"Sorry, I encountered an error while analyzing your wardrobe matches: {str(e)}"
 
     fnc_ctx = AssistantFnc()
 
