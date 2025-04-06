@@ -56,11 +56,11 @@ logger.setLevel(logging.INFO)
 
 google_llm = google.LLM(
     # model="gemini-2.0-flash-thinking-exp-01-21",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     tool_choice="required",
 )
 
-google_llm = openai.LLM(
+openai_llm = openai.LLM(
     model="gpt-4.5-preview-2025-02-27",
     tool_choice="required",
 )
@@ -651,7 +651,7 @@ async def entrypoint(ctx: JobContext):
         vad=silero.VAD.load(),
         # flexibility to use any models
         stt=deepgram.STT(model="nova-2-general"),
-        llm=google_llm,
+        llm=openai_llm,
         tts=elevenlabs.TTS(voice=sara_voice, model="eleven_flash_v2_5"),
         # tts=rime_tts,
         # intial ChatContext with system prompt
