@@ -60,7 +60,10 @@ google_llm = google.LLM(
     tool_choice="required",
 )
 
-google_llm = openai.LLM(model="gpt-4.5-preview-2025-02-27")
+google_llm = openai.LLM(
+    model="gpt-4.5-preview-2025-02-27",
+    tool_choice="required",
+)
 
 rime_tts = TTS(
     model="mistv2",
@@ -183,7 +186,7 @@ async def entrypoint(ctx: JobContext):
 		1) roast my look
 		2) similar items in my wardrobe
 		3) feedback on clothing
-		
+
 			""",
             role="system",
         )
@@ -496,19 +499,48 @@ async def entrypoint(ctx: JobContext):
 
             # Get the LLM's response
             try:
-                response = await gemini_client.generate_content(
-                    temp_chat_ctx.messages_to_gemini_format(),
-                    generation_config={
-                        "temperature": 0.7,
-                        "top_p": 0.95,
-                        "top_k": 40,
-                        "max_output_tokens": 1024,
-                    },
+                # Convert the chat context to the format expected by the model
+                messages = []
+                for msg in temp_chat_ctx.messages:
+                    if msg.role == "system":
+                        messages.append({"role": "system", "content": msg.content})
+                    elif msg.role == "user":
+                        if (
+                            isinstance(msg.content, list)
+                            and len(msg.content) > 0
+                            and isinstance(msg.content[0], llm.ChatImage)
+                        ):
+                            # Handle image content
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/jpeg;base64,{base64.b64encode(msg.content[0].image).decode('utf-8')}",
+                                                "detail": "high",
+                                            },
+                                        }
+                                    ],
+                                }
+                            )
+                        else:
+                            messages.append({"role": "user", "content": msg.content})
+                    elif msg.role == "assistant":
+                        messages.append({"role": "assistant", "content": msg.content})
+
+                # Call the model with the properly formatted messages
+                response = await google_llm.complete(
+                    messages=messages,
+                    temperature=0.7,
+                    top_p=0.95,
+                    max_tokens=1024,
                 )
 
                 # Return the formatted response
-                if response.text:
-                    return f"I've analyzed your current {clothing_type_msg if clothing_type else 'outfit'} and your wardrobe photos. Here are my recommendations:\n\n{response.text}"
+                if response and response.message and response.message.content:
+                    return f"I've analyzed your current {clothing_type_msg if clothing_type else 'outfit'} and your wardrobe photos. Here are my recommendations:\n\n{response.message.content}"
                 else:
                     return "I couldn't analyze the match between your current outfit and wardrobe. Please try again or provide clearer photos."
 
@@ -563,19 +595,48 @@ async def entrypoint(ctx: JobContext):
 
             # Get the LLM's response
             try:
-                response = await gemini_client.generate_content(
-                    temp_chat_ctx.messages_to_gemini_format(),
-                    generation_config={
-                        "temperature": 0.9,  # Higher temperature for more creative responses
-                        "top_p": 0.95,
-                        "top_k": 40,
-                        "max_output_tokens": 800,
-                    },
+                # Convert the chat context to the format expected by the model
+                messages = []
+                for msg in temp_chat_ctx.messages:
+                    if msg.role == "system":
+                        messages.append({"role": "system", "content": msg.content})
+                    elif msg.role == "user":
+                        if (
+                            isinstance(msg.content, list)
+                            and len(msg.content) > 0
+                            and isinstance(msg.content[0], llm.ChatImage)
+                        ):
+                            # Handle image content
+                            messages.append(
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/jpeg;base64,{base64.b64encode(msg.content[0].image).decode('utf-8')}",
+                                                "detail": "high",
+                                            },
+                                        }
+                                    ],
+                                }
+                            )
+                        else:
+                            messages.append({"role": "user", "content": msg.content})
+                    elif msg.role == "assistant":
+                        messages.append({"role": "assistant", "content": msg.content})
+
+                # Call the model with the properly formatted messages
+                response = await google_llm.complete(
+                    messages=messages,
+                    temperature=0.9,  # Higher temperature for more creative responses
+                    top_p=0.95,
+                    max_tokens=800,
                 )
 
                 # Return the formatted response
-                if response.text:
-                    return response.text
+                if response and response.message and response.message.content:
+                    return response.message.content
                 else:
                     return "I tried to roast your outfit, but my fashion critic brain short-circuited. Maybe your look is beyond critique... or beyond help? Try again with a clearer photo!"
 
