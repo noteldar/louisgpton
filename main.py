@@ -510,7 +510,24 @@ async def entrypoint(ctx: JobContext):
                             and len(msg.content) > 0
                             and isinstance(msg.content[0], llm.ChatImage)
                         ):
-                            # Handle image content
+                            # Handle image content - properly convert VideoFrame to bytes
+                            image_data = msg.content[0].image
+                            
+                            # Convert the image to base64
+                            if hasattr(image_data, 'to_ndarray'):
+                                # Convert VideoFrame to bytes using livekit's encode utility
+                                image_bytes = encode(
+                                    image_data,
+                                    options=EncodeOptions(
+                                        format="jpeg",
+                                        resize=ResizeOptions(width=800, height=600)
+                                    )
+                                )
+                            else:
+                                # If it's already bytes, use it directly
+                                image_bytes = image_data
+                            
+                            # Now add to messages with proper base64 encoding
                             messages.append(
                                 {
                                     "role": "user",
@@ -518,7 +535,7 @@ async def entrypoint(ctx: JobContext):
                                         {
                                             "type": "image_url",
                                             "image_url": {
-                                                "url": f"data:image/jpeg;base64,{base64.b64encode(msg.content[0].image).decode('utf-8')}",
+                                                "url": f"data:image/jpeg;base64,{base64.b64encode(image_bytes).decode('utf-8')}",
                                                 "detail": "high",
                                             },
                                         }
@@ -526,119 +543,6 @@ async def entrypoint(ctx: JobContext):
                                 }
                             )
                         else:
-                            messages.append({"role": "user", "content": msg.content})
-                    elif msg.role == "assistant":
-                        messages.append({"role": "assistant", "content": msg.content})
-
-                # Call the model with the properly formatted messages
-                response = await google_llm.complete(
-                    messages=messages,
-                    temperature=0.7,
-                    top_p=0.95,
-                    max_tokens=1024,
-                )
-
-                # Return the formatted response
-                if response and response.message and response.message.content:
-                    return f"I've analyzed your current {clothing_type_msg if clothing_type else 'outfit'} and your wardrobe photos. Here are my recommendations:\n\n{response.message.content}"
-                else:
-                    return "I couldn't analyze the match between your current outfit and wardrobe. Please try again or provide clearer photos."
-
-            except Exception as e:
-                logger.error(f"Error generating wardrobe matching suggestions: {e}")
-                return f"Sorry, I encountered an error while analyzing your wardrobe matches: {str(e)}"
-
-        @llm.ai_callable()
-        async def roast_my_look(
-            self,
-        ):
-            """Humorously critique the user's current outfit with a comedic 'roast'. Results are meant to be funny, not hurtful."""
-            logger.info(f"Roasting user's look")
-
-            # Get the latest image from the video feed
-            latest_image = await get_latest_image(ctx.room)
-            if not latest_image:
-                return "I couldn't capture an image to analyze. Please make sure your camera is working properly."
-
-            # Create a temporary chat context for the roasting task
-            temp_chat_ctx = llm.ChatContext()
-
-            # Add a system message explaining the task
-            temp_chat_ctx.messages.append(
-                llm.ChatMessage(
-                    role="system",
-                    content=f"""You are a hilarious fashion critic with a sharp eye and witty tongue. 
-                    The user wants you to 'roast' their outfit in a comedic way. 
-                    
-					Examples:
-					- if the colors dont match say smth like "a white jacket with a blue shirt. Did you see this look in a toddler's coloring book?
-					- if the look is too standard/boring you can say sarcastically "you look fine. You could even be in a commerical playing basic person number 2
-                    - if the look is too old fashioned, say smth like "its so nice of you to wear your grandma's old clothes"
-					- if someone is wearing anything from Patagonia, say, "Patagonia - what else could i expect from a tech bro"
-					- occasionally just say a generic insult such as "i can see that inflation got to your closet" or "did you buy this at Costco?" 				
-					""",
-                )
-            )
-
-            # Add the current image
-            temp_chat_ctx.messages.append(
-                llm.ChatMessage(
-                    role="user", content=[llm.ChatImage(image=latest_image)]
-                )
-            )
-            temp_chat_ctx.messages.append(
-                llm.ChatMessage(
-                    role="user",
-                    content="Roast my outfit! I'm ready for your fashion critique.",
-                )
-            )
-
-            # Get the LLM's response
-            try:
-                # Convert the chat context to the format expected by the model
-                messages = []
-                for msg in temp_chat_ctx.messages:
-                    if msg.role == "system":
-                        messages.append({"role": "system", "content": msg.content})
-                    elif msg.role == "user":
-                        if (
-                            isinstance(msg.content, list)
-                            and len(msg.content) > 0
-                            and isinstance(msg.content[0], llm.ChatImage)
-                        ):
-                            # Handle image content
-                            messages.append(
-                                {
-                                    "role": "user",
-                                    "content": [
-                                        {
-                                            "type": "image_url",
-                                            "image_url": {
-                                                "url": f"data:image/jpeg;base64,{base64.b64encode(msg.content[0].image).decode('utf-8')}",
-                                                "detail": "high",
-                                            },
-                                        }
-                                    ],
-                                }
-                            )
-                        else:
-                            messages.append({"role": "user", "content": msg.content})
-                    elif msg.role == "assistant":
-                        messages.append({"role": "assistant", "content": msg.content})
-
-                # Call the model with the properly formatted messages
-                response = await google_llm.complete(
-                    messages=messages,
-                    temperature=0.9,  # Higher temperature for more creative responses
-                    top_p=0.95,
-                    max_tokens=800,
-                )
-
-                # Return the formatted response
-                if response and response.message and response.message.content:
-                    return response.message.content
-                else:
-                    return "I tried to roast your outfit, but my fashion critic brain short-circuited. Maybe your look is beyond critique... or beyond help? Try again with a clearer photo!"
 
             except Exception as e:
                 logger.error(f"Error generating outfit roast: {e}")
